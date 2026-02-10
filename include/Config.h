@@ -3,10 +3,27 @@
 
 #include <Arduino.h>
 
+
 // --- PINS ---
-#define I2C_SDA 6
-#define I2C_SCL 7
-#define PULSE_INT_PIN 3 
+#if defined(ESP32C3)
+//ESP32c3
+    #define I2C_SDA 6
+    #define I2C_SCL 7
+    #define PULSE_INT_PIN 3 
+#elif defined(HELTEC_V1)
+// Heltec WiFi Kit 32 V1
+    #define I2C_SDA 21
+    #define I2C_SCL 22
+    #define PULSE_INT_PIN 4  // Free GPIO
+    #define OLED_SDA 4
+    #define OLED_SCL 15
+    #define OLED_RST 16
+    #define HAS_OLED
+    #pragma message "Compiling for Heltec V1 (SDA:21, SCL:22)"
+#else
+    // Fallback or Unknown Board
+    #error "Board type not defined! Please select heltec_v2 or heltec_v3 in platformio.ini"
+#endif
 
 // --- WIFI ---
 #define WIFI_SSID "HereKittyKitty"
@@ -39,6 +56,8 @@ struct SystemState {
     
     bool wifiConnected = false;
     bool bleConnected = false;
+    bool apMode = false;          
+    String ipAddress = "0.0.0.0";
 };
 
 #endif

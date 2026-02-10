@@ -7,7 +7,7 @@ float baselineGravity = 9.8;
 void initMotionSensor() {
     Serial.print("Init Motion (LSM6DSOX)... ");
     if (!lsm.begin_I2C()) {
-        Serial.println("FAILED! Check Pins 6 & 7.");
+        Serial.printf("FAILED! Check Pin SDA: %d & SCL: %d.\n", I2C_SDA, I2C_SCL);
         while (1) delay(100);
     }
     Serial.println("OK!");
