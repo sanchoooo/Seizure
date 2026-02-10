@@ -3,7 +3,7 @@
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-// HTML Content (Updated Vitals Card)
+// HTML Content
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html><head><title>K9 Monitor</title><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>body{font-family:Arial;text-align:center;background:#222;color:#fff}.card{background:#333;padding:20px;margin:10px auto;max-width:400px;border-radius:10px}
@@ -19,13 +19,10 @@ var ws = new WebSocket(`ws://${location.hostname}/ws`);
 ws.onmessage = (e) => {
   var d = JSON.parse(e.data);
   document.getElementById('gforce').innerText = d.g.toFixed(2);
-  
-  // Format: BPM | SpO2 | Skin Temp
   var bpm = d.vHR ? d.hr : "--";
   var spo = d.vS ? d.sp : "--";
   var temp = d.ht > 0 ? d.ht.toFixed(1) + "C" : "--";
   document.getElementById('vitals').innerText = `${bpm} BPM | ${spo}% | ${temp}`;
-  
   var s = document.getElementById('status'); var b = document.getElementById('pauseBtn');
   if(d.p){ s.innerText="PAUSED"; s.style.color="orange"; b.innerText="RESUME"; }
   else if(d.sz){ s.innerText="SEIZURE!"; s.className="value status-alert"; }
@@ -37,22 +34,35 @@ function toggle(){ fetch('/api/control?action=toggle', {method:'POST'}); }
 
 SystemState* _globalStateRef = nullptr;
 
-void initNetwork() {
+void initNetwork(SystemState &state) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     
     Serial.print("Connecting WiFi");
+    
+    // Wait up to 10 seconds for connection
     int retry = 0;
-    while(WiFi.status() != WL_CONNECTED && retry < 15) { delay(500); Serial.print("."); retry++; }
+    while(WiFi.status() != WL_CONNECTED && retry < 20) { 
+        delay(500); 
+        Serial.print("."); 
+        retry++; 
+    }
     
     if(WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n>> Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+        state.wifiConnected = true;
+        state.apMode = false;
+        state.ipAddress = WiFi.localIP().toString(); // Initial attempt
+        Serial.printf("\n>> Connected! IP: %s\n", state.ipAddress.c_str());
     } else {
         Serial.println("\n>> WiFi Failed. Starting AP...");
         WiFi.disconnect(true);
         WiFi.mode(WIFI_AP);
         WiFi.softAP(AP_SSID, NULL, 1);
-        Serial.printf(">> AP Started. IP: %s\n", WiFi.softAPIP().toString().c_str());
+        
+        state.wifiConnected = false;
+        state.apMode = true;
+        state.ipAddress = WiFi.softAPIP().toString();
+        Serial.printf(">> AP Started. IP: %s\n", state.ipAddress.c_str());
     }
 
     server.addHandler(&ws);
@@ -74,7 +84,17 @@ void updateWebClients(SystemState &state) {
     _globalStateRef = &state; 
     ws.cleanupClients();
     
-    // Broadcast JSON including 'ht' (Health Temp)
+    // --- IP ADDRESS REFRESH FIX ---
+    // Check if the IP has finally been assigned by the router
+    if (!state.apMode && WiFi.status() == WL_CONNECTED) {
+        String currentIP = WiFi.localIP().toString();
+        // If the saved IP is 0.0.0.0 but we have a real one now, update it!
+        if (state.ipAddress == "0.0.0.0" && currentIP != "0.0.0.0") {
+            state.ipAddress = currentIP;
+        }
+    }
+    
+    // Broadcast Data
     char buf[256];
     snprintf(buf, sizeof(buf), 
         "{\"p\":%d,\"sz\":%d,\"g\":%.2f,\"hr\":%ld,\"sp\":%ld,\"ht\":%.2f,\"vHR\":%d,\"vS\":%d}",

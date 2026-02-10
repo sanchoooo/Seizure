@@ -1,38 +1,79 @@
 #include "BLEManager.h"
+#include <NimBLEDevice.h>
 
-NimBLECharacteristic *pStatusChar;
-NimBLECharacteristic *pControlChar;
-SystemState* _bleStateRef = nullptr;
+// UUIDs
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" 
 
-class ControlCallbacks : public NimBLECharacteristicCallbacks {
-    void onWrite(NimBLECharacteristic* pChar) {
-        if(!_bleStateRef) return;
-        std::string v = pChar->getValue();
-        if (v.length() > 0) {
-            if (v[0] == '1') _bleStateRef->isPaused = true;
-            if (v[0] == '0') _bleStateRef->isPaused = false;
-        }
+NimBLEServer* pServer = NULL;
+NimBLECharacteristic* pCharacteristic = NULL;
+bool deviceConnected = false;
+
+// Server Callbacks
+class MyServerCallbacks: public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer* pServer) {
+        deviceConnected = true;
+    };
+    void onDisconnect(NimBLEServer* pServer) {
+        deviceConnected = false;
     }
 };
 
 void initBLE(SystemState &state) {
-    _bleStateRef = &state;
-    NimBLEDevice::init("K9-Monitor");
-    NimBLEServer *pServer = NimBLEDevice::createServer();
-    NimBLEService *pService = pServer->createService("180D");
+    Serial.print("Init BLE... ");
     
-    pStatusChar = pService->createCharacteristic("2A37", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    pControlChar = pService->createCharacteristic("2A38", NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ);
-    pControlChar->setCallbacks(new ControlCallbacks());
+    // 1. Initialize
+    NimBLEDevice::init("K9 Monitor");
     
+    // 2. Create Server
+    pServer = NimBLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+    
+    // 3. Create Service
+    NimBLEService *pService = pServer->createService(SERVICE_UUID);
+    
+    // 4. Create Characteristic
+    // FIXED: Changed NIMBLE_PROPERTY_NOTIFY to NIMBLE_PROPERTY::NOTIFY
+    pCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_TX,
+        NIMBLE_PROPERTY::NOTIFY 
+    );
+    
+    // 5. Start
     pService->start();
-    NimBLEDevice::getAdvertising()->addServiceUUID("180D");
-    NimBLEDevice::getAdvertising()->start();
-    Serial.println(">> BLE Ready.");
+    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->start();
+    
+    Serial.println("OK!");
 }
 
 void updateBLE(SystemState &state) {
-    String msg = state.isPaused ? "PAUSED" : (state.seizureDetected ? "SEIZURE" : "OK");
-    pStatusChar->setValue(msg);
-    pStatusChar->notify();
+    state.bleConnected = deviceConnected;
+
+    if (deviceConnected) {
+        char buf[128]; 
+        
+        // JSON Format:
+        // g: G-Force
+        // x/y/z: Gyro Vectors
+        // t1: Board Temp | t2: Skin Temp
+        // hr: Heart Rate | sp: SpO2
+        // sz: Seizure (0/1)
+        
+        snprintf(buf, sizeof(buf), 
+            "{\"g\":%.2f,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"t1\":%.1f,\"t2\":%.1f,\"hr\":%d,\"sp\":%d,\"sz\":%d}", 
+            state.gForce,
+            state.gyroX, state.gyroY, state.gyroZ,
+            state.temperature, 
+            state.healthTemp,
+            (int)state.heartRate, 
+            (int)state.spo2,
+            state.seizureDetected ? 1 : 0
+        );
+
+        pCharacteristic->setValue((uint8_t*)buf, strlen(buf));
+        pCharacteristic->notify();
+    }
 }

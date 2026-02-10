@@ -4,5 +4,6 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 
-void initNetwork();
+// Updated to accept SystemState so we can save the IP address
+void initNetwork(SystemState &state);
 void updateWebClients(SystemState &state);

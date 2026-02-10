@@ -10,6 +10,7 @@
 #include "NetworkManager.h"
 #include "BLEManager.h"
 #include "OutputManager.h"
+#include "DisplayManager.h"
 
 // The Master State Object
 SystemState state;
@@ -19,18 +20,21 @@ void setup() {
     while(!Serial) delay(10);
     Serial.println("\n--- K9 MONITOR STARTING ---");
 
-    // 1. Init BLE First (Memory Reservation)
+    // Init Display (Show Boot Screen)
+    initDisplay();
+
+    // Init BLE First (Memory Reservation)
     initBLE(state);
 
-    // 2. Init I2C and Sensors
+    // Init I2C and Sensors
     Wire.begin(I2C_SDA, I2C_SCL);
     initMotionSensor();
     initHealthSensor();
     calibrateMotionSensor();
 
-    // 3. Init Network (Last to prevent timeout blocking)
-    initNetwork();
-
+    // Init Network (Last to prevent timeout blocking)
+    initNetwork(state);
+    
     Serial.println("--- SYSTEM READY ---");
 }
 
@@ -45,6 +49,7 @@ void loop() {
         updateWebClients(state);
         updateBLE(state);
         printStatus(state);
+        updateDisplay(state);
         lastUpdate = millis();
     }
 }
